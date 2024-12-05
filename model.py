@@ -6,31 +6,69 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.utils.data import SubsetRandomSampler, DataLoader
 import numpy as np
+from tqdm import tqdm
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(1, 8, 3, padding=1), nn.BatchNorm2d(8), nn.Dropout(0.25))
-        self.conv2 = nn.Sequential(nn.Conv2d(8, 16, 3, padding=1), nn.BatchNorm2d(16), nn.Dropout(0.25))
+        # Initial layers
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(1, 16, 3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(16),
+            nn.Dropout(0.1)
+        )
+        
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(16, 32, 3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(32),
+            nn.Dropout(0.1)
+        )
+        
         self.pool1 = nn.MaxPool2d(2, 2)
-        self.conv1_1x1 = nn.Conv2d(16, 8, 1)
-        self.conv3 = nn.Sequential(nn.Conv2d(8, 16, 3, padding=1), nn.BatchNorm2d(16), nn.Dropout(0.25))
-        self.conv4 = nn.Sequential(nn.Conv2d(16, 32, 3, padding=1), nn.BatchNorm2d(32), nn.Dropout(0.25))
+        
+        # Middle layers
+        self.conv3 = nn.Sequential(
+            nn.Conv2d(32, 64, 3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
+            nn.Dropout(0.1)
+        )
+        
+        self.conv4 = nn.Sequential(
+            nn.Conv2d(64, 32, 3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(32),
+            nn.Dropout(0.1)
+        )
+        
         self.pool2 = nn.MaxPool2d(2, 2)
-        self.conv2_1x1 = nn.Conv2d(32, 8, 1)
-        self.conv5 = nn.Sequential(nn.Conv2d(8, 16, 3), nn.BatchNorm2d(16), nn.Dropout(0.25))
-        self.conv6 = nn.Sequential(nn.Conv2d(16, 32, 3), nn.BatchNorm2d(32), nn.Dropout(0.25))
-        self.conv7 = nn.Conv2d(32, 10, 3)
+        
+        # Final layers
+        self.conv5 = nn.Sequential(
+            nn.Conv2d(32, 16, 3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(16),
+            nn.Dropout(0.1)
+        )
+        
+        # Global Average Pooling
+        self.gap = nn.AdaptiveAvgPool2d(1)
+        self.conv6 = nn.Conv2d(16, 10, 1)  # 1x1 conv for final classification
 
     def forward(self, x):
-        x = self.pool1(F.relu(self.conv2(F.relu(self.conv1(x)))))
-        x = self.conv1_1x1(x)
-        x = self.pool2(F.relu(self.conv4(F.relu(self.conv3(x)))))
-        x = self.conv2_1x1(x)
-        x = F.relu(self.conv6(F.relu(self.conv5(x))))
-        x = F.relu(self.conv7(x))
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.pool1(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.pool2(x)
+        x = self.conv5(x)
+        x = self.gap(x)
+        x = self.conv6(x)
         x = x.view(-1, 10)
-        return F.log_softmax(x, dim=1)  # Fixed the deprecated warning
+        return F.log_softmax(x, dim=1)
 
 def train(model, device, train_loader, optimizer, epoch):
     model.train()
@@ -48,6 +86,7 @@ def test(model, device, test_loader):
     model.eval()
     test_loss = 0
     correct = 0
+    total = 0
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
@@ -55,20 +94,17 @@ def test(model, device, test_loader):
             test_loss += F.nll_loss(output, target, reduction='sum').item()
             pred = output.argmax(dim=1, keepdim=True)
             correct += pred.eq(target.view_as(pred)).sum().item()
+            total += target.size(0)
 
-    test_loss /= len(test_loader.dataset)
-    accuracy = 100. * correct / len(test_loader.dataset)
+    test_loss /= total
+    accuracy = 100. * correct / total
 
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset), accuracy))
+        test_loss, correct, total, accuracy))
     
     return accuracy
 
 def get_train_valid_loader(batch_size=128, valid_size=0.167, shuffle=True):
-    """
-    Creates train and validation dataloaders with a 50k/10k split from training data
-    valid_size = 0.167 because 10k/60k = 0.167
-    """
     train_dataset = datasets.MNIST(
         '../data', train=True, download=True,
         transform=transforms.Compose([
@@ -102,9 +138,6 @@ def get_train_valid_loader(batch_size=128, valid_size=0.167, shuffle=True):
     return train_loader, valid_loader
 
 def get_test_loader(batch_size=128):
-    """
-    Creates dataloader for the separate test set of 10k images
-    """
     return DataLoader(
         datasets.MNIST('../data', train=False, 
             transform=transforms.Compose([
@@ -122,7 +155,6 @@ def main():
     torch.manual_seed(1)
     batch_size = 128
 
-    # Get the dataloaders with proper splits
     train_loader, valid_loader = get_train_valid_loader(batch_size=batch_size)
     test_loader = get_test_loader(batch_size=batch_size)
 
@@ -132,13 +164,10 @@ def main():
 
     for epoch in range(1, 20):
         train(model, device, train_loader, optimizer, epoch)
-        # Validate on validation set
         valid_accuracy = test(model, device, valid_loader)
         scheduler.step(valid_accuracy)
-        # Test on separate test set
         test_accuracy = test(model, device, test_loader)
         
-        # Save model if accuracy threshold is met on test set
         if test_accuracy >= 99.4:
             torch.save(model.state_dict(), 'mnist_model.pth')
             print(f"Model saved! Achieved {test_accuracy:.2f}% accuracy")
