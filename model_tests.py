@@ -1,11 +1,10 @@
 import torch
 import torch.nn as nn
 import sys
-from model import Net  # Import from model.py instead of notebook
+from model import Net
 
 def test_parameter_count():
     model = Net()
-    # Load the trained weights
     model.load_state_dict(torch.load('mnist_model.pth', map_location=torch.device('cpu')))
     total_params = sum(p.numel() for p in model.parameters())
     assert total_params < 20000, f"Model has {total_params} parameters, which exceeds the limit of 20,000"
@@ -25,22 +24,30 @@ def test_dropout():
     assert has_dropout, "Model does not use Dropout"
     print("✓ Dropout test passed")
 
-def test_gap_or_fc():
+def test_architecture_type():
     model = Net()
     model.load_state_dict(torch.load('mnist_model.pth', map_location=torch.device('cpu')))
+    
+    # Check for FC layer
     has_fc = any(isinstance(m, nn.Linear) for m in model.modules())
+    
+    # Check for GAP
+    has_gap = any(isinstance(m, nn.AdaptiveAvgPool2d) for m in model.modules())
+    
+    # Model must use either FC layer or GAP
+    assert has_fc or has_gap, "Model must use either Fully Connected layer or Global Average Pooling"
     
     if has_fc:
         print("✓ Architecture test passed: Model uses Fully Connected layer")
-    else:
-        print("✓ Architecture test passed: Model uses Global Average Pooling or 1x1 convolutions")
+    elif has_gap:
+        print("✓ Architecture test passed: Model uses Global Average Pooling")
 
 def run_all_tests():
     try:
         test_parameter_count()
         test_batch_norm()
         test_dropout()
-        test_gap_or_fc()
+        test_architecture_type()
         print("\nAll tests passed! ✨")
         sys.exit(0)
     except AssertionError as e:
