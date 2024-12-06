@@ -1,0 +1,23 @@
+MNIST Model Test Results
+=======================
+
+Model Architecture:
+- Uses Global Average Pooling
+- Batch Normalization and Dropout (0.05)
+- Total Parameters: 13,697
+
+Test Set Metrics:
+----------------
+Total samples tested: 10000
+Correct predictions: 9876
+Final accuracy: 98.76%
+
+Test Set Performance:
+--------------------
+Average Loss: 0.0408
+Best Epoch Accuracy: 98.76%
+
+Target Metrics:
+--------------
+Parameter Count: ✓ (< 20,000)
+Accuracy: ✗ (Target: 99.40%) 
